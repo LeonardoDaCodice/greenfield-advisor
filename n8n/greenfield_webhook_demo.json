@@ -1,0 +1,52 @@
+{
+  "name": "GreenField Webhook Demo",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "greenfield/demo",
+        "options": {}
+      },
+      "id": "Webhook1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "return [{json: {received: $json, routed: true, ts: Date.now() }}];"
+      },
+      "id": "Function1",
+      "name": "Function",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        600,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {},
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Function",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function1": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false
+}

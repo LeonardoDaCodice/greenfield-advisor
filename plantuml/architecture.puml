@@ -1,0 +1,82 @@
+@startuml
+title GreenField Advisor – Updated Architecture (Observer, CoR, Strategy, Control Channel)
+
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam ArrowColor #2C3E50
+skinparam ActorStyle awesome
+
+' ============================================================
+' PACKAGES
+' ============================================================
+package "Agents (Python)" {
+  [SensorAgent] as SA
+  [WeatherAgent] as WA
+  [DecisionAgent] as DA
+}
+
+package "Pipeline — Chain of Responsibility" {
+  [CleaningHandler] as CH
+  [FeatureEngineeringHandler] as FEH
+  [EstimationHandler] as EH
+}
+
+package "AI / Decision Strategies (Strategy Pattern)" {
+  [SimpleRuleStrategy] as SRS
+  [MLPlaceholderStrategy] as MLS
+}
+
+package "Dashboard (Streamlit)" {
+  [Web Dashboard] as UI
+}
+
+package "Orchestration (Optional)" {
+  [n8n Workflow] as N8N
+}
+
+package "MQTT Broker" {
+  [greenfield/sensors] as MQTT_SENS
+  [greenfield/weather] as MQTT_WEATHER
+  [greenfield/decisions] as MQTT_DEC
+  [greenfield/control/strategy] as MQTT_CTRL
+}
+
+' ============================================================
+' OBSERVER (sensors → decision agent)
+' ============================================================
+SA --> MQTT_SENS : publish sensor data
+WA --> MQTT_WEATHER : publish weather data
+
+MQTT_SENS --> DA : sensor readings\n(Observer)
+MQTT_WEATHER --> DA : weather updates\n(Observer)
+
+' ============================================================
+' DASHBOARD → DECISION AGENT (control channel)
+' ============================================================
+UI --> MQTT_CTRL : "strategy = simple_rules | ml_placeholder"\n(Select mode)
+
+MQTT_CTRL --> DA : update active strategy
+
+' ============================================================
+' PIPELINE (CoR)
+' ============================================================
+DA --> CH : handle(record)
+CH --> FEH : handle(record)
+FEH --> EH : handle(record)
+
+' ============================================================
+' STRATEGY PATTERN
+' ============================================================
+EH -down-> SRS : estimator
+EH -down-> MLS : estimator
+
+' ============================================================
+' OUTPUT DECISIONS
+' ============================================================
+DA --> MQTT_DEC : publish decision JSON
+
+MQTT_DEC --> UI : display latest decisions
+
+DA --> N8N : HTTP POST webhook (optional)
+
+@enduml
