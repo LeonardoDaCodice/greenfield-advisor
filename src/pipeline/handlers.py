@@ -69,11 +69,25 @@ class FeatureEngineeringHandler(Handler):
         hum = float(data.get("humidity") or 50.0)
         light = float(data.get("light") or 500.0)
 
-        # Formula WSI (semplificata)
+        # Nuova feature da immagini: salute vegetazione (0–1)
+        # In un sistema reale deriverebbe da un modello CV (es. NDVI).
+        vh = float(data.get("vegetation_health") or 0.7)
+
+        # Formula WSI (semplificata, prima parte come prima)
         wsi = (temp / 35.0) * ((100.0 - hum) / 100.0) * (light / 1000.0)
+
+        # Modulazione in base a vegetazione_health:
+        # - se la vegetazione è molto sana (vh → 1), riduciamo leggermente lo stress percepito
+        # - se è scarsa (vh → 0), lo lasciamo invariato o leggermente amplificato
+        vh_clamped = max(0.0, min(vh, 1.0))
+        # Fattore tra ~0.9 e 1.1
+        modulation_factor = 1.1 - vh_clamped * 0.2
+        wsi = wsi * modulation_factor
 
         data["water_stress_index"] = round(max(0.0, min(wsi, 2.0)), 3)
         return data
+
+
 
 
 # ============================================================
