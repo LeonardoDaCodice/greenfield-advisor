@@ -12,7 +12,9 @@ from ..ai.strategies import make_strategy
 
 
 # ============================================================
-#  DecisionAgent – ora compatibile con sensori dinamici
+#  DecisionAgent – usa cache per TIPO di sensore (temp/hum/light)
+#  Compatibile con sensori dinamici: prende sempre l'ultima lettura
+#  per ogni tipo, indipendentemente dall'ID del sensore.
 # ============================================================
 
 class DecisionAgent(threading.Thread):
@@ -22,17 +24,17 @@ class DecisionAgent(threading.Thread):
         # MQTT client
         self.client: MqttClient = make_client("decision")
 
-        # Cache dinamica: contiene solo i sensori attivi
-        self.sensor_cache: Dict[str, Dict[str, Any]] = {}
-
-        # Cache meteo
-        self.weather_cache = {
+        # Cache per tipo di grandezza (non per ID sensore)
+        self.cache: Dict[str, Any] = {
             "temperature": None,
             "humidity": None,
+            "light": None,
             "wind_kmh": None,
             "radiation": None,
         }
-        self.weather_last_update = 0
+
+        # Timestamp ultimo aggiornamento per tipo
+        self.last_update: Dict[str, float] = {k: 0.0 for k in self.cache}
 
         # Stato di funzionamento
         self._running = True
@@ -41,22 +43,20 @@ class DecisionAgent(threading.Thread):
         sensors_topic = f"greenfield/{FIELD_ID}/sensors/+/+"
         weather_topic = f"greenfield/{FIELD_ID}/weather/current"
         control_strategy_topic = f"greenfield/{FIELD_ID}/control/strategy"
-        control_sensor_topic = "greenfield/control/sensors"  # add/remove
 
-        # MQTT callbacks
+        # Callback MQTT
         self.client.on_message = self._on_message
 
         # Sottoscrizioni
         self.client.subscribe(sensors_topic, qos=0)
         self.client.subscribe(weather_topic, qos=0)
         self.client.subscribe(control_strategy_topic, qos=0)
-        self.client.subscribe(control_sensor_topic, qos=0)
 
-        # Strategia iniziale
+        # Strategia iniziale (AI opzionale)
         self.current_strategy_name = (AI_STRATEGY or "simple_rules").lower().strip()
         self.strategy = make_strategy(self.current_strategy_name)
 
-        # Pipeline AI (CoR)
+        # Pipeline AI (Chain of Responsibility)
         self.cleaning = CleaningHandler()
         self.feature_engineering = FeatureEngineeringHandler()
         self.estimation = EstimationHandler(self.strategy)
@@ -87,108 +87,83 @@ class DecisionAgent(threading.Thread):
                 return
 
             # ----------------------------------
-            # COMANDO: Aggiunta / Rimozione sensori
+            # LETTURE SENSORI (temperature / humidity / light)
             # ----------------------------------
-            if topic == "greenfield/control/sensors":
-                action = payload.get("action")
-                sensor_id = payload.get("id")
-
-                if action == "add":
-                    print(f"[DecisionAgent] Registrato sensore: {sensor_id}")
-                    self.sensor_cache[sensor_id] = {"last_update": 0}
-
-                elif action == "remove":
-                    print(f"[DecisionAgent] Rimosso sensore: {sensor_id}")
-                    if sensor_id in self.sensor_cache:
-                        del self.sensor_cache[sensor_id]
-
+            # Esempio payload sensore:
+            # { "sensor": "temp-1", "type": "temperature", "value": 23.5, "ts": ... }
+            if "type" in payload and "value" in payload:
+                kind = payload["type"]
+                if kind in self.cache:
+                    self.cache[kind] = payload["value"]
+                    self.last_update[kind] = now
                 return
 
             # ----------------------------------
-            # SENSORE – Inserito solo se attivo
+            # METEO – dati aggiuntivi (vento, radiazione, ecc.)
             # ----------------------------------
-            if "sensor" in payload and "value" in payload:
-
-                sensor_id = payload.get("sensor")
-
-                # Ignora sensori rimossi
-                if sensor_id not in self.sensor_cache:
-                    return
-
-                self.sensor_cache[sensor_id]["data"] = payload
-                self.sensor_cache[sensor_id]["last_update"] = now
-                return
-
-            # ----------------------------------
-            # METEO – sempre utile
-            # ----------------------------------
+            # Esempio payload meteo:
+            # { "temperature": 22.1, "humidity": 55.0, "wind_kmh": 5.2, "radiation": 300.0, ... }
             if "temperature" in payload and "humidity" in payload:
-                for k in self.weather_cache:
+                for k in self.cache:
                     if k in payload:
-                        self.weather_cache[k] = payload[k]
-
-                self.weather_last_update = now
+                        self.cache[k] = payload[k]
+                        self.last_update[k] = now
+                return
 
         except Exception as e:
             print("[DecisionAgent] Errore parsing MQTT:", e)
 
     # ============================================================
-    #  MAIN LOOP – genera decisioni
+    #  MAIN LOOP – genera decisioni periodiche
     # ============================================================
     def run(self):
         self.client.loop_start()
         print("[DecisionAgent] Avviato. In ascolto...")
 
         while self._running:
-
             try:
-                time.sleep(1)
+                time.sleep(1.0)
 
                 now = time.time()
 
-                # Se non ci sono sensori attivi → nessuna decisione
-                if len(self.sensor_cache) == 0:
+                # Richiediamo almeno temperatura & umidità per decidere qualcosa
+                if not all(self.cache[k] is not None for k in ["temperature", "humidity"]):
                     continue
 
-                # Tenta di trovare almeno temperatura e umidità
-                temperature = None
-                humidity = None
-                light = None
+                # Invalida dati troppo vecchi (> 15s) per temp e umidità
+                for k in ["temperature", "humidity"]:
+                    if self.last_update[k] and now - self.last_update[k] > 15:
+                        self.cache[k] = None
 
-                for s in self.sensor_cache.values():
-                    if "data" not in s:
-                        continue
-                    d = s["data"]
-                    if d["type"] == "temperature": temperature = d["value"]
-                    if d["type"] == "humidity": humidity = d["value"]
-                    if d["type"] == "light": light = d["value"]
-
-                # Se mancano temp/umidità → skip
-                if temperature is None or humidity is None:
+                # Se dopo l'invalidazione mancano ancora dati → aspettiamo
+                if not all(self.cache[k] is not None for k in ["temperature", "humidity"]):
                     continue
 
+                # Costruisce il record completo per la pipeline
                 record = {
-                    "temperature": temperature,
-                    "humidity": humidity,
-                    "light": light,
-                    "wind_kmh": self.weather_cache["wind_kmh"],
-                    "radiation": self.weather_cache["radiation"],
-                    "ts": now
+                    "temperature": self.cache["temperature"],
+                    "humidity": self.cache["humidity"],
+                    "light": self.cache["light"],
+                    "wind_kmh": self.cache["wind_kmh"],
+                    "radiation": self.cache["radiation"],
+                    "ts": now,
                 }
 
-                # Pipeline AI
+                # Passaggio attraverso la pipeline AI / regole
                 processed = self.pipeline.handle(record)
 
                 # Pubblica decisione
                 out_topic = f"greenfield/{FIELD_ID}/decisions"
                 self.client.publish(out_topic, json.dumps(processed), qos=0)
+                # DEBUG opzionale:
+                # print("[DecisionAgent] Decisione pubblicata:", processed)
 
-                # Webhook n8n (opzionale)
+                # Webhook n8n (se configurato)
                 if N8N_WEBHOOK_URL:
                     try:
                         requests.post(N8N_WEBHOOK_URL, json=processed, timeout=2)
-                    except:
-                        pass
+                    except Exception as e:
+                        print("[DecisionAgent] n8n webhook error:", e)
 
             except Exception as e:
                 print("[DecisionAgent] Errore loop:", e)
