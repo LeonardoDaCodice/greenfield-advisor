@@ -1,6 +1,7 @@
 # **GreenField Advisor — (Agent-based, AI-optional)**
 
-Sistema didattico modulare basato su agenti che simulano sensori ambientali, condizioni meteo e un modulo decisionale.
+Sistema didattico modulare basato su agenti che simulano sensori ambientali, condizioni meteo,
+feature derivate da immagini (salute della vegetazione) e un modulo decisionale.
 I dati vengono elaborati tramite una **pipeline** (Chain of Responsibility: cleaning → feature engineering → estimation)
 con **strategie intercambiabili** (Strategy Pattern) e comunicazione asincrona basata su **Observer** tramite MQTT.
 È disponibile una dashboard in **Streamlit** e integrazione opzionale con **n8n** per orchestrazione.
@@ -23,7 +24,7 @@ python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env   # poi modificare i valori se necessario
-```
+````
 
 ---
 
@@ -37,7 +38,7 @@ mosquitto -v
 
 ---
 
-### **Terminale 2 — Avviare gli agenti (sensori + meteo + decisioni)**
+### **Terminale 2 — Avviare gli agenti (sensori + meteo + immagini + decisioni)**
 
 ```bash
 venv\Scripts\activate
@@ -65,10 +66,11 @@ streamlit run streamlit_app/app.py
 
 ## **Pattern applicati**
 
-* **Observer** – Agenti sensori → DecisionAgent tramite MQTT
+* **Observer** – Agenti sensori / meteo / immagini → DecisionAgent tramite MQTT
 * **Chain of Responsibility** – cleaning → feature engineering → estimation
 * **Strategy** – strategie decisionali intercambiabili (`simple_rules`, `ml_placeholder`)
 * **(Opz.) Mediator** – n8n come orchestratore esterno
+* **Integrazione indice di salute vegetazione da immagini (ImageAgent)** – un agente dedicato simula l’analisi delle immagini del campo e pubblica un indice di `vegetation_health` usato nel calcolo del water stress index.
 
 ---
 
@@ -76,7 +78,12 @@ streamlit run streamlit_app/app.py
 
 I sensori simulati possono essere sostituiti da ESP32/Arduino con pubblicazione MQTT,
 senza modifiche all’architettura: si mantengono stessi topic e payload.
+In modo analogo, l’`ImageAgent` può essere sostituito da un servizio reale di Computer Vision
+che elabora immagini del campo (da drone o camera fissa) e pubblica feature aggregate
+(es. indici di salute della vegetazione).
 
 ---
 
 © 2025 — Starter didattico per GreenField Advisor.
+
+````

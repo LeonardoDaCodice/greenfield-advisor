@@ -1,33 +1,43 @@
+# src/app/main.py
+
 import time
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from ..agents.sensor_agent import SensorAgent
+from ..agents.sensor_manager import SensorManager
 from ..agents.weather_agent import WeatherAgent
 from ..agents.decision_agent import DecisionAgent
+from ..agents.image_agent import ImageAgent  # <--- nuovo import
+
 
 def main():
-    sensors = [
-        SensorAgent("temp-1", "temperature"),
-        SensorAgent("hum-1", "humidity"),
-        SensorAgent("light-1", "light"),
-    ]
+    print("[SYSTEM] Avvio GreenField Advisor...")
+
+    sensor_manager = SensorManager()
     weather = WeatherAgent()
     decision = DecisionAgent()
+    image_agent = ImageAgent()  # <--- nuovo agente
 
-    for s in sensors: s.start()
+    sensor_manager.start()
     weather.start()
     decision.start()
+    image_agent.start()
 
-    print("Agents running. Press Ctrl+C to exit.")
+    print("[SYSTEM] Agents in esecuzione. Premi Ctrl+C per uscire.")
+
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("Stopping agents...")
-        for s in sensors: s.stop()
+        print("\n[SYSTEM] Arresto richiesto. Sto chiudendo gli agenti...")
+        sensor_manager.stop()
         weather.stop()
         decision.stop()
+        image_agent.stop()
+        time.sleep(1.0)
+        print("[SYSTEM] Shutdown completo.")
+
 
 if __name__ == "__main__":
     main()
