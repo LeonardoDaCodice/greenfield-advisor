@@ -71,8 +71,10 @@ decisions_q = queue.Queue()
 
 df = pd.DataFrame(columns=[
     "temperatura", "umidità", "luce", "vento_kmh",
-    "radiazione", "stress_idrico", "decisione", "timestamp"
+    "radiazione", "stress_idrico", "salute_vegetazione",
+    "decisione", "timestamp"
 ])
+
 
 # ---------------------------------------------------------
 # Stato Streamlit (strategia, sensori, tipi)
@@ -211,6 +213,7 @@ while True:
             "vento_kmh": row.get("wind_kmh"),
             "radiazione": row.get("radiation"),
             "stress_idrico": row.get("water_stress_index"),
+            "salute_vegetazione": row.get("vegetation_health"),
             "decisione": json.dumps(row.get("suggestion")),
             "timestamp": row.get("ts")
         }
@@ -282,6 +285,17 @@ while True:
             f"<div class='metric-card {stress_class}' style='margin-top:20px;'>🔥 {round(stress,3)}<br><small>Stress Idrico</small></div>",
             unsafe_allow_html=True
         )
+
+        # salute vegetazione (da immagini), se disponibile
+        vh = last.get("salute_vegetazione")
+        if pd.notna(vh):
+            vh_class = "ok" if vh >= 0.8 else ("warn" if vh >= 0.5 else "bad")
+            st.markdown(
+                f"<div class='metric-card {vh_class}' style='margin-top:20px;'>🌿 {round(vh,3)}<br><small>Salute Vegetazione (da immagini)</small></div>",
+                unsafe_allow_html=True
+            )
+
+
 
     # -----------------------------------------------------
     # Grafici dinamici in 2 colonne

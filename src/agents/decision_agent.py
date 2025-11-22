@@ -13,8 +13,7 @@ from ..ai.strategies import make_strategy
 
 # ============================================================
 #  DecisionAgent – usa cache per TIPO di sensore (temp/hum/light)
-#  Compatibile con sensori dinamici: prende sempre l'ultima lettura
-#  per ogni tipo, indipendentemente dall'ID del sensore.
+#  + integra feature derivate da immagini (vegetation_health)
 # ============================================================
 
 class DecisionAgent(threading.Thread):
@@ -31,6 +30,7 @@ class DecisionAgent(threading.Thread):
             "light": None,
             "wind_kmh": None,
             "radiation": None,
+            "vegetation_health": None,  # nuova feature da immagini
         }
 
         # Timestamp ultimo aggiornamento per tipo
@@ -42,6 +42,7 @@ class DecisionAgent(threading.Thread):
         # Topic
         sensors_topic = f"greenfield/{FIELD_ID}/sensors/+/+"
         weather_topic = f"greenfield/{FIELD_ID}/weather/current"
+        image_topic = f"greenfield/{FIELD_ID}/images/health"
         control_strategy_topic = f"greenfield/{FIELD_ID}/control/strategy"
 
         # Callback MQTT
@@ -50,6 +51,7 @@ class DecisionAgent(threading.Thread):
         # Sottoscrizioni
         self.client.subscribe(sensors_topic, qos=0)
         self.client.subscribe(weather_topic, qos=0)
+        self.client.subscribe(image_topic, qos=0)
         self.client.subscribe(control_strategy_topic, qos=0)
 
         # Strategia iniziale (AI opzionale)
@@ -84,6 +86,21 @@ class DecisionAgent(threading.Thread):
                     self.current_strategy_name = new_name
                     self.strategy = make_strategy(new_name)
                     self.estimation.estimator = self.strategy
+                return
+
+            # ----------------------------------
+            # FEATURE DA IMMAGINI
+            # ----------------------------------
+            # Esempio payload:
+            # { "image_id": "...", "vegetation_health": 0.78, "ts": ... }
+            if topic.endswith("/images/health"):
+                vh = payload.get("vegetation_health")
+                if vh is not None:
+                    try:
+                        self.cache["vegetation_health"] = float(vh)
+                        self.last_update["vegetation_health"] = now
+                    except Exception:
+                        pass
                 return
 
             # ----------------------------------
@@ -135,7 +152,11 @@ class DecisionAgent(threading.Thread):
                     if self.last_update[k] and now - self.last_update[k] > 15:
                         self.cache[k] = None
 
-                # Se dopo l'invalidazione mancano ancora dati → aspettiamo
+                # (Opzionale) invalida immagini troppo vecchie (> 60s)
+                if self.last_update["vegetation_health"] and now - self.last_update["vegetation_health"] > 60:
+                    self.cache["vegetation_health"] = None
+
+                # Se dopo l'invalidazione mancano ancora dati minimi → aspettiamo
                 if not all(self.cache[k] is not None for k in ["temperature", "humidity"]):
                     continue
 
@@ -146,6 +167,7 @@ class DecisionAgent(threading.Thread):
                     "light": self.cache["light"],
                     "wind_kmh": self.cache["wind_kmh"],
                     "radiation": self.cache["radiation"],
+                    "vegetation_health": self.cache["vegetation_health"],
                     "ts": now,
                 }
 
@@ -155,8 +177,6 @@ class DecisionAgent(threading.Thread):
                 # Pubblica decisione
                 out_topic = f"greenfield/{FIELD_ID}/decisions"
                 self.client.publish(out_topic, json.dumps(processed), qos=0)
-                # DEBUG opzionale:
-                # print("[DecisionAgent] Decisione pubblicata:", processed)
 
                 # Webhook n8n (se configurato)
                 if N8N_WEBHOOK_URL:
