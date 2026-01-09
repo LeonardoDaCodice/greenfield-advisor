@@ -17,14 +17,61 @@ con **strategie intercambiabili** (Strategy Pattern) e comunicazione asincrona b
 
 ---
 
-## **Installazione**
+## **Clonazione del progetto**
+
+Repository: https://github.com/LeonardoDaCodice/greenfield-advisor
+
+```bash
+git clone https://github.com/LeonardoDaCodice/greenfield-advisor.git
+cd greenfield-advisor
+````
+
+---
+
+## **Installazione Mosquitto (Windows) — Download + PATH**
+
+Per eseguire `mosquitto` da terminale (es. `mosquitto -v`) è necessario:
+
+1. **Scaricare e installare Mosquitto** dal sito ufficiale:
+   [https://mosquitto.org/download/](https://mosquitto.org/download/)
+
+2. Verificare che la cartella di installazione sia nel **PATH** delle Variabili di sistema.
+
+### **Percorso tipico di installazione**
+
+Esempio:
+`C:\Program Files\mosquitto`
+
+### **Aggiungere Mosquitto al PATH (Variabili di sistema)**
+
+1. Apri: **Pannello di Controllo → Sistema → Impostazioni di sistema avanzate**
+2. Clicca: **Variabili d’ambiente**
+3. In **Variabili di sistema**, seleziona **Path** → **Modifica**
+4. Clicca **Nuovo** e aggiungi:
+   `C:\Program Files\mosquitto`
+5. Conferma con **OK** su tutte le finestre
+6. **Chiudi e riapri** il terminale (per ricaricare le variabili)
+
+### **Verifica**
+
+Da un nuovo terminale:
+
+```bash
+mosquitto -h
+```
+
+Se il comando viene riconosciuto, il PATH è configurato correttamente.
+
+---
+
+## **Installazione progetto**
 
 ```bash
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env   # poi modificare i valori se necessario
-````
+```
 
 ---
 
@@ -86,4 +133,5 @@ che elabora immagini del campo (da drone o camera fissa) e pubblica feature aggr
 
 © 2025 — Starter didattico per GreenField Advisor.
 
-````
+```
+```
