@@ -99,7 +99,7 @@ python -m src.app.main
 
 ```bash
 venv\Scripts\activate
-streamlit run streamlit_app/app.py
+streamlit run streamlit_app\app.py
 ```
 
 ---

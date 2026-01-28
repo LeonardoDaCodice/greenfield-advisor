@@ -22,3 +22,7 @@ env/
 
 # n8n local config/cache
 n8n/.n8n/
+
+
+docs/
+

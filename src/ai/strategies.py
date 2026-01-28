@@ -3,93 +3,129 @@ import random
 
 
 # ============================================================
-# Base delle strategie decisionali
+# Base Strategy
 # ============================================================
 class BaseStrategy:
-    """
-    Classe base astratta che definisce l'interfaccia delle strategie decisionali.
-    Ogni strategia deve implementare il metodo estimate().
-    """
     name = "base"
 
     def estimate(self, features: Dict[str, Any]) -> Dict[str, Any]:
         raise NotImplementedError
 
 
-
 # ============================================================
-# Strategia 1 — Regole semplici (baseline senza AI)
+# STRATEGIA REALISTICA BASATA SUI RANGE USATI NELLE CARD
 # ============================================================
 class SimpleRuleStrategy(BaseStrategy):
-    """
-    Strategia deterministica basata su regole:
-    - Se l'umidità è bassa o lo stress idrico è alto → irrigare
-    - Se la temperatura è troppo bassa → non irrigare
-    """
     name = "simple_rules"
 
-    def estimate(self, features: Dict[str, Any]) -> Dict[str, Any]:
-        hum = float(features.get("humidity", 50.0))
-        temp = float(features.get("temperature", 25.0))
-        wsi = float(features.get("water_stress_index", 0.2))
+    def estimate(self, f: Dict[str, Any]) -> Dict[str, Any]:
 
-        action = "hold"
-        reason = "conditions-normal"
+        temp = float(f.get("temperature", 25.0))
+        hum = float(f.get("humidity", 50.0))
+        light = float(f.get("light", 500.0))
+        vh = float(f.get("vegetation_health", 0.7))
+        wsi = float(f.get("water_stress_index", 0.25))
 
-        if hum < 45.0 or wsi > 0.6:
-            action = "irrigate"
-            reason = "low-humidity-or-high-stress"
+        # ---------------------------------------------------------
+        # 1) CONDIZIONI DAVVERO ESTREME → ALERT
+        # ---------------------------------------------------------
+        if temp > 40 or hum < 20 or light < 80 or vh < 0.2 or wsi > 1.2:
+            return {
+                "action": "alert",
+                "reason": "extreme-conditions",
+                "volume_l_m2": 0.0
+            }
 
-        if temp < 5.0:
-            action = "hold"
-            reason = "too-cold-to-irrigate"
+        # ---------------------------------------------------------
+        # 2) WSI → BASE PER L'IRRIGAZIONE
+        # ---------------------------------------------------------
+        if wsi < 0.4:
+            irrig_action = "hold"
+            volume = 0.0
+            reason = "conditions-normal"
 
-        volume_l_m2 = 2.0 if action == "irrigate" else 0.0
+        elif 0.4 <= wsi < 0.7:
+            irrig_action = "irrigate_light"
+            volume = 2.0
+            reason = "moderate-water-stress"
 
+        elif 0.7 <= wsi < 1.0:
+            irrig_action = "irrigate"
+            volume = 4.0
+            reason = "high-water-stress"
+
+        else:  # wsi >= 1.0
+            irrig_action = "irrigate_heavy"
+            volume = 6.0
+            reason = "very-high-water-stress"
+
+        # ---------------------------------------------------------
+        # 3) UMIDITÀ — override della decisione
+        # ---------------------------------------------------------
+
+        # Umidità troppo bassa → irrigazione forte garantita
+        if hum < 30:
+            irrig_action = "irrigate_heavy"
+            volume = max(volume, 5.0)
+            reason = "low-humidity"
+
+        # Umidità troppo alta → MAI irrigare
+        elif hum > 85:
+            irrig_action = "hold"
+            volume = 0.0
+            reason = "humidity-too-high"
+
+        # ---------------------------------------------------------
+        # 4) Temperatura bassa → vietata irrigazione
+        # ---------------------------------------------------------
+        if temp < 5:
+            return {
+                "action": "hold",
+                "reason": "too-cold-to-irrigate",
+                "volume_l_m2": 0.0
+            }
+
+        # ---------------------------------------------------------
+        # 5) Vegetation health molto bassa → ALERT
+        # ---------------------------------------------------------
+        if vh < 0.3 and irrig_action != "alert":
+            return {
+                "action": "alert",
+                "reason": "vegetation-health-critical",
+                "volume_l_m2": 0.0
+            }
+
+        # ---------------------------------------------------------
+        # 6) RISPOSTA FINALE
+        # ---------------------------------------------------------
         return {
-            "action": action,
+            "action": irrig_action,
             "reason": reason,
-            "volume_l_m2": volume_l_m2
+            "volume_l_m2": volume
         }
 
 
-
 # ============================================================
-# Strategia 2 — Placeholder AI simulata (senza addestramento)
+# AI PLACEHOLDER — Comportamento probabilistico
 # ============================================================
 class MLPlaceholderStrategy(BaseStrategy):
-    """
-    Strategia che simula un modello di Machine Learning.
-    Non usa un modello addestrato ma introduce:
-    - comportamento probabilistico
-    - decisioni non deterministiche
-    Lo scopo è dimostrare l'integrazione AI-ready senza training reale.
-    """
     name = "ml_placeholder"
 
     def estimate(self, features: Dict[str, Any]) -> Dict[str, Any]:
         p = random.random()
-
-        # Simuliamo un modello probabilistico:
-        # con p > 0.7 → irrigazione necessaria
         action = "irrigate" if p > 0.7 else "hold"
 
         return {
             "action": action,
             "reason": "simulated-ml-result",
-            "volume_l_m2": 1.2 if action == "irrigate" else 0.0
+            "volume_l_m2": 1.5 if action == "irrigate" else 0.0
         }
 
 
-
 # ============================================================
-# Factory delle strategie
+# FACTORY — Selezione strategia
 # ============================================================
 def make_strategy(name: str) -> BaseStrategy:
-    """
-    Ritorna l'istanza della strategia richiesta.
-    Permette all'utente o al sistema di sostituire facilmente il motore decisionale.
-    """
     name = (name or "simple_rules").lower().strip()
 
     if name == "ml_placeholder":

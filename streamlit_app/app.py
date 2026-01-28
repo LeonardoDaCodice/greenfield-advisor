@@ -33,13 +33,13 @@ st.markdown("""
     padding: 18px;
     border-radius: 12px;
     color: white;
-    font-size: 20px;
+    font-size: 22px;
     font-weight: bold;
     text-align: center;
     margin-bottom: 20px;
 }
 .status-ok   { background: linear-gradient(135deg, #2ecc71, #27ae60); }
-.status-warn { background: linear-gradient(135deg, #2980b9, #3498db); }
+.status-warn { background: linear-gradient(135deg, #f1c40f, #f39c12); }
 .status-bad  { background: linear-gradient(135deg, #e74c3c, #c0392b); }
 
 .section-title {
@@ -48,16 +48,9 @@ st.markdown("""
     font-weight: bold;
 }
 
-/* Nasconde eventuali colonne indice auto-generate */
-tbody th {
-    display: none !important;
-}
-thead th:first-child {
-    display: none !important;
-}
-table {
-    border-collapse: collapse;
-}
+tbody th { display: none !important; }
+thead th:first-child { display: none !important; }
+table { border-collapse: collapse; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -70,44 +63,59 @@ readings_q = queue.Queue()
 decisions_q = queue.Queue()
 
 df = pd.DataFrame(columns=[
-    "temperatura", "umidità", "luce", "vento_kmh",
-    "radiazione", "stress_idrico", "salute_vegetazione",
+    "temperatura", "umidità", "luce",
+    "stress_idrico", "vegetation_health",
     "decisione", "timestamp"
 ])
 
+# ---------------------------------------------------------
+# Stato Streamlit
+# ---------------------------------------------------------
+if "mode" not in st.session_state:
+    st.session_state["mode"] = "live"
 
-# ---------------------------------------------------------
-# Stato Streamlit (strategia, sensori, tipi)
-# ---------------------------------------------------------
 if "current_strategy" not in st.session_state:
     st.session_state["current_strategy"] = None
 
-if "known_sensors" not in st.session_state:
-    st.session_state["known_sensors"] = ["temp-1", "hum-1", "light-1"]
+# ---------------------------------------------------------
+# Scelta modalità LIVE / DEMO
+# ---------------------------------------------------------
+st.sidebar.header("Modalità dati")
+mode_selected = st.sidebar.radio(
+    "Modalità di acquisizione dati",
+    ["Live", "Demo (Test Cases)"],
+    index=0
+).lower().split()[0]
 
-if "sensor_types" not in st.session_state:
-    st.session_state["sensor_types"] = {
-        "temp-1": "temperature",
-        "hum-1": "humidity",
-        "light-1": "light",
-    }
+if st.session_state["mode"] != mode_selected:
+    st.session_state["mode"] = mode_selected
 
-if "active_sensor_types" not in st.session_state:
-    st.session_state["active_sensor_types"] = set(st.session_state["sensor_types"].values())
+    if mode_selected == "live":
+        mqtt_pub = mqtt.Client()
+        mqtt_pub.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
+        mqtt_pub.publish(
+            f"greenfield/{FIELD_ID}/control/test_case",
+            json.dumps({"mode": "live"})
+        )
+        mqtt_pub.loop_start()
 
 # ---------------------------------------------------------
-# Modalità AI / Non-AI
+# Modalità AI (solo LIVE)
 # ---------------------------------------------------------
 STRATEGY_LABELS = {
     "senza AI": "simple_rules",
     "AI (ML placeholder)": "ml_placeholder",
 }
 
-modalita_label = st.sidebar.radio("Modalità di decisione", list(STRATEGY_LABELS.keys()), index=0)
-selected_strategy = STRATEGY_LABELS[modalita_label]
+if st.session_state["mode"] == "live":
+    st.sidebar.subheader("Modalità decisionale")
+    modalita_label = st.sidebar.radio("Decision engine", list(STRATEGY_LABELS.keys()), index=0)
+    selected_strategy = STRATEGY_LABELS[modalita_label]
+else:
+    selected_strategy = "simple_rules"
 
 # ---------------------------------------------------------
-# MQTT
+# MQTT Setup
 # ---------------------------------------------------------
 def on_message(client, userdata, msg):
     try:
@@ -115,21 +123,8 @@ def on_message(client, userdata, msg):
     except:
         return
 
-    topic = msg.topic
-
-    if topic.endswith("/decisions"):
+    if msg.topic.endswith("/decisions"):
         decisions_q.put(data)
-        return
-
-    if topic.endswith("/control/sensors/active"):
-        sensors = data.get("sensors", [])
-        st.session_state["known_sensors"] = [s["id"] for s in sensors]
-        st.session_state["sensor_types"] = {s["id"]: s["type"] for s in sensors}
-        st.session_state["active_sensor_types"] = set(st.session_state["sensor_types"].values())
-        return
-
-    if "/sensors/" in topic:
-        readings_q.put(data)
         return
 
 
@@ -138,10 +133,7 @@ def mqtt_loop_sub():
     c.on_message = on_message
     c.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
 
-    c.subscribe(f"greenfield/{FIELD_ID}/sensors/+/+", qos=0)
     c.subscribe(f"greenfield/{FIELD_ID}/decisions", qos=0)
-    c.subscribe(f"greenfield/{FIELD_ID}/control/sensors/active", qos=0)
-
     c.loop_forever()
 
 
@@ -151,47 +143,90 @@ mqtt_pub = mqtt.Client()
 mqtt_pub.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
 mqtt_pub.loop_start()
 
-# cambio strategia runtime
-if st.session_state["current_strategy"] != selected_strategy:
-    payload = {"strategy": selected_strategy}
-    mqtt_pub.publish(f"greenfield/{FIELD_ID}/control/strategy", json.dumps(payload))
-    st.session_state["current_strategy"] = selected_strategy
+# ---------------------------------------------------------
+# DEMO MODE — Selezione test case
+# ---------------------------------------------------------
+if st.session_state["mode"] == "demo":
+
+    st.sidebar.subheader("Test Cases")
+
+    files = [
+        f.replace(".json", "")
+        for f in os.listdir("test_cases")
+        if f.endswith(".json")
+    ]
+
+    selected_case = st.sidebar.selectbox("Seleziona scenario", files)
+
+    if st.sidebar.button("Applica Test Case"):
+        mqtt_pub.publish(
+            f"greenfield/{FIELD_ID}/control/test_case",
+            json.dumps({"mode": "demo", "case": selected_case})
+        )
+        st.sidebar.success(f"Scenario '{selected_case}' applicato!")
+
 
 # ---------------------------------------------------------
-# Gestione sensori
+# Funzioni classificazione card
 # ---------------------------------------------------------
-st.sidebar.subheader("Gestione Sensori")
-st.sidebar.write(st.session_state["known_sensors"])
+def classify_temperature(t):
+    if t is None: return "bad"
+    if 18 <= t <= 30: return "ok"
+    if 10 <= t < 18 or 30 < t <= 35: return "warn"
+    return "bad"
 
-with st.sidebar.expander("Aggiungi sensore"):
-    nuovo_tipo = st.selectbox("Tipo sensore", ["temperature", "humidity", "light"])
-    if st.button("Crea nuovo sensore"):
-        new_id = f"{nuovo_tipo[:4]}-{len(st.session_state['known_sensors']) + 1}"
+def classify_humidity(h):
+    if h is None: return "bad"
+    if 40 <= h <= 70: return "ok"
+    if 20 <= h < 40 or 70 < h <= 85: return "warn"
+    return "bad"
 
-        mqtt_pub.publish(f"greenfield/{FIELD_ID}/control/sensors",
-                         json.dumps({"action": "add", "id": new_id, "type": nuovo_tipo}))
+def classify_light(lx):
+    if lx is None: return "bad"
+    if 300 <= lx <= 1200: return "ok"
+    if 150 <= lx < 300 or 1200 < lx <= 1500: return "warn"
+    return "bad"
 
-        st.session_state["known_sensors"].append(new_id)
-        st.session_state["sensor_types"][new_id] = nuovo_tipo
-        st.session_state["active_sensor_types"] = set(st.session_state["sensor_types"].values())
+def classify_veg_health(vh):
+    if vh is None: return "bad"
+    if vh >= 0.8: return "ok"
+    if 0.5 <= vh < 0.8: return "warn"
+    return "bad"
 
-        st.success(f"Creato sensore {new_id}")
+def classify_wsi(w):
+    if w is None: return "bad"
+    if w < 0.4: return "ok"
+    if w < 0.7: return "warn"
+    return "bad"
 
-with st.sidebar.expander("Rimuovi sensore"):
-    if st.session_state["known_sensors"]:
-        sens = st.selectbox("Sensore", st.session_state["known_sensors"])
-        if st.button("Rimuovi"):
-            mqtt_pub.publish(f"greenfield/{FIELD_ID}/control/sensors",
-                             json.dumps({"action": "remove", "id": sens}))
-
-            st.session_state["known_sensors"].remove(sens)
-            st.session_state["sensor_types"].pop(sens, None)
-            st.session_state["active_sensor_types"] = set(st.session_state["sensor_types"].values())
-
-            st.warning(f"Rimosso {sens}")
 
 # ---------------------------------------------------------
-# Placeholder layout
+# MAPPATURE TESTUALI (CONDIZIONI + SUGGERIMENTO)
+# ---------------------------------------------------------
+reason_map = {
+    "conditions-normal": "Condizioni normali del campo.",
+    "moderate-water-stress": "Stress idrico moderato.",
+    "high-water-stress": "Stress idrico elevato.",
+    "very-high-water-stress": "Stress idrico molto elevato.",
+    "low-humidity": "Umidità troppo bassa.",
+    "humidity-too-high": "Umidità eccessiva.",
+    "too-cold-to-irrigate": "Temperatura troppo bassa per irrigare.",
+    "vegetation-health-critical": "Salute vegetazione critica.",
+    "extreme-conditions": "Condizioni ambientali estreme.",
+    "simulated-ml-result": "Risultato generato dal modello AI simulato."
+}
+
+action_map = {
+    "hold": "Nessuna irrigazione necessaria",
+    "irrigate_light": "Irrigazione lieve consigliata",
+    "irrigate": "Irrigazione consigliata",
+    "irrigate_heavy": "Irrigazione intensa necessaria",
+    "alert": "⚠️ Intervento immediato richiesto"
+}
+
+
+# ---------------------------------------------------------
+# LOOP PRINCIPALE
 # ---------------------------------------------------------
 placeholder_wait = st.empty()
 placeholder_status = st.empty()
@@ -199,9 +234,6 @@ placeholder_metrics = st.empty()
 placeholder_charts = st.empty()
 placeholder_table = st.empty()
 
-# ---------------------------------------------------------
-# LOOP PRINCIPALE
-# ---------------------------------------------------------
 while True:
 
     while not decisions_q.empty():
@@ -210,10 +242,8 @@ while True:
             "temperatura": row.get("temperature"),
             "umidità": row.get("humidity"),
             "luce": row.get("light"),
-            "vento_kmh": row.get("wind_kmh"),
-            "radiazione": row.get("radiation"),
             "stress_idrico": row.get("water_stress_index"),
-            "salute_vegetazione": row.get("vegetation_health"),
+            "vegetation_health": row.get("vegetation_health"),
             "decisione": json.dumps(row.get("suggestion")),
             "timestamp": row.get("ts")
         }
@@ -223,141 +253,116 @@ while True:
         placeholder_wait.info("In attesa della prima decisione...")
         time.sleep(0.3)
         continue
-    else:
-        placeholder_wait.empty()
+    placeholder_wait.empty()
 
     last = df.iloc[-1]
     suggestion = json.loads(last["decisione"])
+
     action = suggestion.get("action", "")
+    reason = suggestion.get("reason", "")
 
-    # tipi attivi
-    active_types = st.session_state["active_sensor_types"]
-    temp_active = "temperature" in active_types
-    hum_active = "humidity" in active_types
-    light_active = "light" in active_types
-
-    # -----------------------------------------------------
-    # Status Banner
-    # -----------------------------------------------------
+    # ---------------------------------------------------------
+    # BANNER SUPERIORE — CONDIZIONI (based on reason)
+    # ---------------------------------------------------------
     with placeholder_status.container():
-        st.markdown(f"**Modalità attuale:** `{modalita_label}`")
 
-        if action == "hold":
-            st.markdown("<div class='status-banner status-ok'>Condizioni Normali</div>", unsafe_allow_html=True)
-        elif action == "irrigate":
-            st.markdown("<div class='status-banner status-warn'>Irrigazione Raccomandata</div>", unsafe_allow_html=True)
+        reason_text = reason_map.get(reason, "Stato non disponibile")
+
+        if reason in ["conditions-normal"]:
+            banner_class = "status-ok"
+        elif reason in ["moderate-water-stress", "high-water-stress", "low-humidity"]:
+            banner_class = "status-warn"
         else:
-            st.markdown("<div class='status-banner status-bad'>Condizioni Critiche</div>", unsafe_allow_html=True)
+            banner_class = "status-bad"
 
-    # -----------------------------------------------------
-    # METRIC CARDS — dinamico
-    # -----------------------------------------------------
-    with placeholder_metrics.container():
-
-        cards = []
-
-        if temp_active and pd.notna(last["temperatura"]):
-            cards.append(
-                f"<div class='metric-card ok'>🌡️ {last['temperatura']}°C<br><small>Temperatura</small></div>"
-            )
-
-        if hum_active and pd.notna(last["umidità"]):
-            hum = last["umidità"]
-            hum_class = "ok" if hum > 60 else ("warn" if hum > 30 else "bad")
-            cards.append(
-                f"<div class='metric-card {hum_class}'>💧 {hum}%<br><small>Umidità</small></div>"
-            )
-
-        if light_active and pd.notna(last["luce"]):
-            cards.append(
-                f"<div class='metric-card warn'>🔆 {last['luce']} lx<br><small>Luce</small></div>"
-            )
-
-        if cards:
-            cols = st.columns(len(cards))
-            for i, html in enumerate(cards):
-                cols[i].markdown(html, unsafe_allow_html=True)
-
-        # stress idrico sempre visibile
-        stress = last["stress_idrico"]
-        stress_class = "ok" if stress < 0.4 else ("warn" if stress < 0.7 else "bad")
         st.markdown(
-            f"<div class='metric-card {stress_class}' style='margin-top:20px;'>🔥 {round(stress,3)}<br><small>Stress Idrico</small></div>",
+            f"<div class='status-banner {banner_class}'>{reason_text}</div>",
             unsafe_allow_html=True
         )
 
-        # salute vegetazione (da immagini), se disponibile
-        vh = last.get("salute_vegetazione")
-        if pd.notna(vh):
-            vh_class = "ok" if vh >= 0.8 else ("warn" if vh >= 0.5 else "bad")
-            st.markdown(
-                f"<div class='metric-card {vh_class}' style='margin-top:20px;'>🌿 {round(vh,3)}<br><small>Salute Vegetazione (da immagini)</small></div>",
-                unsafe_allow_html=True
-            )
+    # ---------------------------------------------------------
+    # CARDS SENSORI
+    # ---------------------------------------------------------
+    with placeholder_metrics.container():
+        cards = []
 
+        t = last["temperatura"]
+        cards.append(f"<div class='metric-card {classify_temperature(t)}'>🌡️ {t}°C<br><small>Temperatura</small></div>")
 
+        h = last["umidità"]
+        cards.append(f"<div class='metric-card {classify_humidity(h)}'>💧 {h}%<br><small>Umidità</small></div>")
 
-    # -----------------------------------------------------
-    # Grafici dinamici in 2 colonne
-    # -----------------------------------------------------
+        l = last["luce"]
+        cards.append(f"<div class='metric-card {classify_light(l)}'>🔆 {l} lx<br><small>Luce</small></div>")
+
+        cols = st.columns(len(cards))
+        for i, html in enumerate(cards):
+            cols[i].markdown(html, unsafe_allow_html=True)
+
+        stress = last["stress_idrico"]
+        st.markdown(
+            f"<div class='metric-card {classify_wsi(stress)}' style='margin-top:20px;'>🔥 {stress}<br><small>Stress Idrico</small></div>",
+            unsafe_allow_html=True
+        )
+
+        vh = last["vegetation_health"]
+        st.markdown(
+            f"<div class='metric-card {classify_veg_health(vh)}' style='margin-top:20px;'>🌿 {vh}<br><small>Salute Vegetazione</small></div>",
+            unsafe_allow_html=True
+        )
+
+    # ---------------------------------------------------------
+    # GRAFICI
+    # ---------------------------------------------------------
     with placeholder_charts.container():
         st.markdown("<div class='section-title'>📈 Andamento dei Valori</div>", unsafe_allow_html=True)
 
-        grafici = []
-
-        if temp_active and not df["temperatura"].isna().all():
-            grafici.append(("Temperatura", df["temperatura"]))
-
-        if hum_active and not df["umidità"].isna().all():
-            grafici.append(("Umidità", df["umidità"]))
-
-        if light_active and not df["luce"].isna().all():
-            grafici.append(("Luce", df["luce"]))
-
-        grafici.append(("Stress Idrico", df["stress_idrico"]))
+        grafici = [
+            ("Temperatura", df["temperatura"]),
+            ("Umidità", df["umidità"]),
+            ("Luce", df["luce"]),
+            ("Stress Idrico", df["stress_idrico"]),
+        ]
 
         cols = st.columns(2)
-
         for idx, (label, serie) in enumerate(grafici):
             with cols[idx % 2]:
                 st.write(f"**{label}**")
                 st.line_chart(serie, height=250)
 
-    # -----------------------------------------------------
-    # Decision Card
-    # -----------------------------------------------------
+    # ---------------------------------------------------------
+    # BANNER INFERIORE — SUGGERIMENTO (based on action)
+    # ---------------------------------------------------------
     with placeholder_table.container():
-        title = "Ultima Decisione AI" if selected_strategy == "ml_placeholder" else "Ultima Decisione del Sistema"
-        st.markdown(f"<div class='section-title'>{title}</div>", unsafe_allow_html=True)
 
-        action_map = {
-            "hold": "Nessuna irrigazione",
-            "irrigate": "Irrigazione necessaria",
-            "alert": "Condizioni critiche",
-        }
+        pretty_action = action_map.get(action, "Azione sconosciuta")
+        pretty_reason = reason_map.get(reason, "Motivo non disponibile")
 
-        reason_map = {
-            "conditions-normal": "Condizioni normali",
-            "low-humidity-or-high-stress": "Umidità bassa o stress elevato",
-            "extreme-conditions": "Condizioni estreme",
-        }
-
-        pretty_action = action_map.get(suggestion.get("action"), "N/A")
-        pretty_reason = reason_map.get(suggestion.get("reason"), "N/A")
         volume = suggestion.get("volume_l_m2", 0)
+
+        # colore banner suggeriemento
+        if action == "hold":
+            banner_class = "status-ok"
+        elif action in ["irrigate_light", "irrigate"]:
+            banner_class = "status-warn"
+        else:
+            banner_class = "status-bad"
+
+        st.markdown(
+            f"<div class='status-banner {banner_class}'><b>{pretty_action}</b></div>",
+            unsafe_allow_html=True
+        )
 
         st.markdown(f"""
         <div style="
             padding: 20px;
-            background: linear-gradient(135deg, #2c3e50, #34495e);
-            border-radius: 12px;
-            color: white;
-            font-size: 20px;
-            line-height: 1.6;
+            background: rgba(255,255,255,0.05);
             border: 1px solid rgba(255,255,255,0.2);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-        ">
-            <b>Azione:</b> {pretty_action}<br>
+            border-radius: 12px;
+            font-size: 18px;
+            color: white;
+            line-height: 1.6;
+            margin-top: -10px;">
             <b>Motivo:</b> {pretty_reason}<br>
             <b>Volume consigliato:</b> {volume} L/m²
         </div>
