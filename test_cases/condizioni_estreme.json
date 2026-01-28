@@ -1,0 +1,6 @@
+{
+  "temperature": 60,
+  "humidity": 10,
+  "light": 1800,
+  "vegetation_health": 0.1
+}

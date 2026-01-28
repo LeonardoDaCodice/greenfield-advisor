@@ -13,7 +13,7 @@ class Handler:
         return nxt
 
     def handle(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Esegue il proprio step e poi passa al prossimo."""
+        """Esegue il proprio step e passa al successivo."""
         processed = self._process(data)
         if self._next:
             return self._next.handle(processed)
@@ -25,12 +25,12 @@ class Handler:
 
 # ============================================================
 # 🧹 CLEANING HANDLER
-# Normalizza valori e rimuove anomalie grezze
+# Normalizzazione valori sensori
 # ============================================================
 class CleaningHandler(Handler):
     def _process(self, data: Dict[str, Any]) -> Dict[str, Any]:
 
-        # Temperature: accettabile da -20 a 60°C
+        # Temperature: clamp tra -20 e +60
         if "temperature" in data:
             try:
                 v = float(data["temperature"])
@@ -46,13 +46,21 @@ class CleaningHandler(Handler):
             except:
                 data["humidity"] = None
 
-        # Luce: max 2000 lx (per simulazioni)
+        # Luce: clamp 0–2000 lx
         if "light" in data:
             try:
                 v = float(data["light"])
                 data["light"] = max(0.0, min(2000.0, v))
             except:
                 data["light"] = None
+
+        # Vegetation health: 0–1
+        if "vegetation_health" in data and data["vegetation_health"] is not None:
+            try:
+                v = float(data["vegetation_health"])
+                data["vegetation_health"] = max(0.0, min(1.0, v))
+            except:
+                data["vegetation_health"] = None
 
         return data
 
@@ -64,43 +72,44 @@ class CleaningHandler(Handler):
 class FeatureEngineeringHandler(Handler):
     def _process(self, data: Dict[str, Any]) -> Dict[str, Any]:
 
-        # Lettura sicura valori
-        temp = float(data.get("temperature") or 25.0)
-        hum = float(data.get("humidity") or 50.0)
-        light = float(data.get("light") or 500.0)
+        # ---- Lettura sicura: default SOLO se None ----
+        temp = data.get("temperature")
+        hum = data.get("humidity")
+        light = data.get("light")
+        vh = data.get("vegetation_health")
 
-        # Nuova feature da immagini: salute vegetazione (0–1)
-        # In un sistema reale deriverebbe da un modello CV (es. NDVI).
-        vh = float(data.get("vegetation_health") or 0.7)
+        if temp is None: temp = 25.0
+        if hum is None: hum = 50.0
+        if light is None: light = 500.0
+        if vh is None: vh = 0.7
 
-        # Formula WSI (semplificata, prima parte come prima)
+        temp = float(temp)
+        hum = float(hum)
+        light = float(light)
+        vh = float(vh)
+
+        # ---- Calcolo WSI base ----
         wsi = (temp / 35.0) * ((100.0 - hum) / 100.0) * (light / 1000.0)
 
-        # Modulazione in base a vegetazione_health:
-        # - se la vegetazione è molto sana (vh → 1), riduciamo leggermente lo stress percepito
-        # - se è scarsa (vh → 0), lo lasciamo invariato o leggermente amplificato
+        # ---- Modulazione in base alla salute vegetazione ----
         vh_clamped = max(0.0, min(vh, 1.0))
-        # Fattore tra ~0.9 e 1.1
-        modulation_factor = 1.1 - vh_clamped * 0.2
-        wsi = wsi * modulation_factor
+        modulation_factor = 1.1 - vh_clamped * 0.2  # range 1.1 → 0.9
+        wsi *= modulation_factor
 
         data["water_stress_index"] = round(max(0.0, min(wsi, 2.0)), 3)
         return data
 
 
-
-
 # ============================================================
 # 🤖 ESTIMATION HANDLER
-# Applica la strategia (regole o AI)
+# Strategy: regole o AI placeholder
 # ============================================================
 class EstimationHandler(Handler):
     def __init__(self, estimator, nxt: Optional['Handler'] = None):
         super().__init__(nxt)
-        self.estimator = estimator  # Strategy selezionata
+        self.estimator = estimator
 
     def _process(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Applica lo strategy estimator per ottenere una decisione."""
         suggestion = self.estimator.estimate(data)
         data["suggestion"] = suggestion
         return data

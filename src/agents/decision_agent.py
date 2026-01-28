@@ -4,6 +4,7 @@ import time
 import requests
 from typing import Dict, Any
 from paho.mqtt.client import Client as MqttClient
+import os
 
 from ..common.mqtt_bus import make_client
 from ..common.config import FIELD_ID, AI_STRATEGY, N8N_WEBHOOK_URL
@@ -12,8 +13,7 @@ from ..ai.strategies import make_strategy
 
 
 # ============================================================
-#  DecisionAgent – usa cache per TIPO di sensore (temp/hum/light)
-#  + integra feature derivate da immagini (vegetation_health)
+#  DecisionAgent – LIVE MODE + DEMO MODE con test cases
 # ============================================================
 
 class DecisionAgent(threading.Thread):
@@ -23,42 +23,45 @@ class DecisionAgent(threading.Thread):
         # MQTT client
         self.client: MqttClient = make_client("decision")
 
-        # Cache per tipo di grandezza (non per ID sensore)
+        # Cache dei valori LIVE
         self.cache: Dict[str, Any] = {
             "temperature": None,
             "humidity": None,
             "light": None,
             "wind_kmh": None,
             "radiation": None,
-            "vegetation_health": None,  # nuova feature da immagini
+            "vegetation_health": None,
         }
 
-        # Timestamp ultimo aggiornamento per tipo
+        # Timestamp ultimo update
         self.last_update: Dict[str, float] = {k: 0.0 for k in self.cache}
 
-        # Stato di funzionamento
+        # Demo mode
+        self.demo_mode = False
+        self.demo_case_data = None
+
         self._running = True
 
-        # Topic
+        # Topic di sottoscrizione
         sensors_topic = f"greenfield/{FIELD_ID}/sensors/+/+"
         weather_topic = f"greenfield/{FIELD_ID}/weather/current"
         image_topic = f"greenfield/{FIELD_ID}/images/health"
         control_strategy_topic = f"greenfield/{FIELD_ID}/control/strategy"
+        control_test_case_topic = f"greenfield/{FIELD_ID}/control/test_case"
 
-        # Callback MQTT
         self.client.on_message = self._on_message
 
-        # Sottoscrizioni
         self.client.subscribe(sensors_topic, qos=0)
         self.client.subscribe(weather_topic, qos=0)
         self.client.subscribe(image_topic, qos=0)
         self.client.subscribe(control_strategy_topic, qos=0)
+        self.client.subscribe(control_test_case_topic, qos=0)
 
-        # Strategia iniziale (AI opzionale)
+        # Strategy iniziale
         self.current_strategy_name = (AI_STRATEGY or "simple_rules").lower().strip()
         self.strategy = make_strategy(self.current_strategy_name)
 
-        # Pipeline AI (Chain of Responsibility)
+        # Pipeline AI (Cleaning → FeatureEngineering → Estimation)
         self.cleaning = CleaningHandler()
         self.feature_engineering = FeatureEngineeringHandler()
         self.estimation = EstimationHandler(self.strategy)
@@ -68,7 +71,21 @@ class DecisionAgent(threading.Thread):
         print(f"[DecisionAgent] Strategia iniziale: {self.current_strategy_name}")
 
     # ============================================================
-    #  MQTT MESSAGE HANDLER
+    #  Carica test case JSON
+    # ============================================================
+    def load_test_case(self, case_name: str) -> Dict[str, Any]:
+        try:
+            path = os.path.join("test_cases", f"{case_name}.json")
+            with open(path, "r") as f:
+                data = json.load(f)
+            print(f"[DecisionAgent] Test case caricato: {case_name}")
+            return data
+        except Exception as e:
+            print(f"[DecisionAgent] Errore caricando test case '{case_name}': {e}")
+            return None
+
+    # ============================================================
+    #  MESSAGE HANDLER
     # ============================================================
     def _on_message(self, client, userdata, msg):
         try:
@@ -76,9 +93,9 @@ class DecisionAgent(threading.Thread):
             topic = msg.topic
             now = time.time()
 
-            # ----------------------------------
-            # COMANDO: Cambio Strategia
-            # ----------------------------------
+            # ------------------------------------------------------
+            # CAMBIO STRATEGIA
+            # ------------------------------------------------------
             if topic.endswith("/control/strategy"):
                 new_name = payload.get("strategy", "").lower().strip()
                 if new_name:
@@ -88,38 +105,54 @@ class DecisionAgent(threading.Thread):
                     self.estimation.estimator = self.strategy
                 return
 
-            # ----------------------------------
+            # ------------------------------------------------------
+            # DEMO MODE: attiva/disattiva
+            # ------------------------------------------------------
+            if topic.endswith("/control/test_case"):
+                mode = payload.get("mode", "live")
+
+                if mode == "live":
+                    self.demo_mode = False
+                    self.demo_case_data = None
+                    print("[DecisionAgent] DEMO disattivata → modalità LIVE")
+                    return
+
+                if mode == "demo":
+                    case_name = payload.get("case")
+                    case_data = self.load_test_case(case_name)
+                    if case_data:
+                        self.demo_mode = True
+                        self.demo_case_data = case_data
+                        print(f"[DecisionAgent] DEMO ATTIVA → caso '{case_name}'")
+                    return
+
+            # Se siamo in DEMO: ignora TUTTI i sensori reali
+            if self.demo_mode:
+                return
+
+            # ------------------------------------------------------
             # FEATURE DA IMMAGINI
-            # ----------------------------------
-            # Esempio payload:
-            # { "image_id": "...", "vegetation_health": 0.78, "ts": ... }
+            # ------------------------------------------------------
             if topic.endswith("/images/health"):
                 vh = payload.get("vegetation_health")
                 if vh is not None:
-                    try:
-                        self.cache["vegetation_health"] = float(vh)
-                        self.last_update["vegetation_health"] = now
-                    except Exception:
-                        pass
+                    self.cache["vegetation_health"] = float(vh)
+                    self.last_update["vegetation_health"] = now
                 return
 
-            # ----------------------------------
-            # LETTURE SENSORI (temperature / humidity / light)
-            # ----------------------------------
-            # Esempio payload sensore:
-            # { "sensor": "temp-1", "type": "temperature", "value": 23.5, "ts": ... }
+            # ------------------------------------------------------
+            # SENSORI (temperature / humidity / light)
+            # ------------------------------------------------------
             if "type" in payload and "value" in payload:
                 kind = payload["type"]
                 if kind in self.cache:
-                    self.cache[kind] = payload["value"]
+                    self.cache[kind] = float(payload["value"])
                     self.last_update[kind] = now
                 return
 
-            # ----------------------------------
-            # METEO – dati aggiuntivi (vento, radiazione, ecc.)
-            # ----------------------------------
-            # Esempio payload meteo:
-            # { "temperature": 22.1, "humidity": 55.0, "wind_kmh": 5.2, "radiation": 300.0, ... }
+            # ------------------------------------------------------
+            # METEO
+            # ------------------------------------------------------
             if "temperature" in payload and "humidity" in payload:
                 for k in self.cache:
                     if k in payload:
@@ -131,59 +164,66 @@ class DecisionAgent(threading.Thread):
             print("[DecisionAgent] Errore parsing MQTT:", e)
 
     # ============================================================
-    #  MAIN LOOP – genera decisioni periodiche
+    #  MAIN LOOP
     # ============================================================
     def run(self):
         self.client.loop_start()
-        print("[DecisionAgent] Avviato. In ascolto...")
+        print("[DecisionAgent] Agente decisionale avviato...")
 
         while self._running:
             try:
                 time.sleep(1.0)
-
                 now = time.time()
 
-                # Richiediamo almeno temperatura & umidità per decidere qualcosa
-                if not all(self.cache[k] is not None for k in ["temperature", "humidity"]):
-                    continue
+                # ====================================================
+                # DEMO MODE
+                # ====================================================
+                if self.demo_mode and self.demo_case_data:
+                    record = self.demo_case_data.copy()
+                    record["ts"] = now
 
-                # Invalida dati troppo vecchi (> 15s) per temp e umidità
-                for k in ["temperature", "humidity"]:
-                    if self.last_update[k] and now - self.last_update[k] > 15:
-                        self.cache[k] = None
+                else:
+                    # ====================================================
+                    # LIVE MODE
+                    # ====================================================
+                    if not all(self.cache[k] is not None for k in ["temperature", "humidity"]):
+                        continue
 
-                # (Opzionale) invalida immagini troppo vecchie (> 60s)
-                if self.last_update["vegetation_health"] and now - self.last_update["vegetation_health"] > 60:
-                    self.cache["vegetation_health"] = None
+                    # Invalida dati vecchi (>15 sec)
+                    for k in ["temperature", "humidity"]:
+                        if self.last_update[k] and (now - self.last_update[k] > 15):
+                            self.cache[k] = None
 
-                # Se dopo l'invalidazione mancano ancora dati minimi → aspettiamo
-                if not all(self.cache[k] is not None for k in ["temperature", "humidity"]):
-                    continue
+                    if not all(self.cache[k] is not None for k in ["temperature", "humidity"]):
+                        continue
 
-                # Costruisce il record completo per la pipeline
-                record = {
-                    "temperature": self.cache["temperature"],
-                    "humidity": self.cache["humidity"],
-                    "light": self.cache["light"],
-                    "wind_kmh": self.cache["wind_kmh"],
-                    "radiation": self.cache["radiation"],
-                    "vegetation_health": self.cache["vegetation_health"],
-                    "ts": now,
-                }
+                    record = {
+                        "temperature": self.cache["temperature"],
+                        "humidity": self.cache["humidity"],
+                        "light": self.cache["light"],
+                        "wind_kmh": self.cache["wind_kmh"],
+                        "radiation": self.cache["radiation"],
+                        "vegetation_health": self.cache["vegetation_health"],
+                        "ts": now,
+                    }
 
-                # Passaggio attraverso la pipeline AI / regole
+                # ====================================================
+                # Pipeline AI
+                # ====================================================
                 processed = self.pipeline.handle(record)
 
+                # ====================================================
                 # Pubblica decisione
+                # ====================================================
                 out_topic = f"greenfield/{FIELD_ID}/decisions"
                 self.client.publish(out_topic, json.dumps(processed), qos=0)
 
-                # Webhook n8n (se configurato)
+                # Webhook n8n
                 if N8N_WEBHOOK_URL:
                     try:
                         requests.post(N8N_WEBHOOK_URL, json=processed, timeout=2)
-                    except Exception as e:
-                        print("[DecisionAgent] n8n webhook error:", e)
+                    except Exception:
+                        pass
 
             except Exception as e:
                 print("[DecisionAgent] Errore loop:", e)
