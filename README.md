@@ -98,7 +98,6 @@ python -m src.app.main
 ### **Terminale 3 — Avviare la dashboard Streamlit**
 
 ```bash
-venv\Scripts\activate
 streamlit run streamlit_app\app.py
 ```
 
