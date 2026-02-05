@@ -1,0 +1,48 @@
+@startuml
+title GreenField Advisor – Deployment Diagram
+
+node "User Laptop\n(Frontend)" {
+    component "Streamlit Dashboard" as DASH
+}
+
+node "Backend Server\n(Python Runtime)" {
+
+    node "Agents" {
+        component "SensorAgent\n(temperature/humidity/light)" as SA
+        component "WeatherAgent" as WA
+        component "ImageAgent" as IA
+        component "SensorManager" as SM
+        component "DecisionAgent\n(Pipeline + Strategy)" as DA
+    }
+
+    node "AI Pipeline" {
+        component "CleaningHandler"
+        component "FeatureEngineeringHandler"
+        component "EstimationHandler"
+        component "Strategy\n(simple_rules / ml_placeholder)" as STR
+    }
+}
+
+node "MQTT Broker\n(Mosquitto)" as BROKER
+
+' CONNESSIONI
+SA --> BROKER : publish sensors
+WA --> BROKER : publish weather
+IA --> BROKER : publish vegetation_health
+
+SM --> BROKER : publish active sensors
+SM <-- BROKER : control commands (add/remove sensor)
+
+DA <-- BROKER : receive sensors, weather, images
+DA --> BROKER : publish decisions
+
+DASH <-- BROKER : subscribe decisions
+DASH --> BROKER : request test-case / strategy changes
+
+' pipeline
+DA --> CleaningHandler
+CleaningHandler --> FeatureEngineeringHandler
+FeatureEngineeringHandler --> EstimationHandler
+EstimationHandler --> STR
+
+@enduml

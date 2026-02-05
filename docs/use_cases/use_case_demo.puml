@@ -1,0 +1,19 @@
+@startuml
+title Use Case – Modalità DEMO (Test Cases)
+
+actor "Utente" as User
+
+rectangle "Demo Mode" {
+
+    usecase "Seleziona test case" as D1
+    usecase "Carica JSON scenario" as D2
+    usecase "Pipeline AI" as D3
+    usecase "Mostra decisione simulata" as D4
+}
+
+User --> D1
+D1 --> D2
+D2 --> D3
+D3 --> D4
+
+@enduml

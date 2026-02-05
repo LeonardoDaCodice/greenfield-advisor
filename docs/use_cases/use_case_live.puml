@@ -1,0 +1,24 @@
+@startuml
+title Use Case – Modalità LIVE
+
+actor "Utente" as User
+actor "MQTT Broker" as Broker
+
+rectangle "Live Mode" {
+
+    usecase "Ricevi sensori reali" as U1
+    usecase "Ricevi meteo reale" as U2
+    usecase "Ricevi feature immagini" as U3
+    usecase "Pipeline AI" as U4
+    usecase "Genera decisione" as U5
+    usecase "Visualizza dashboard" as U6
+}
+
+Broker --> U1
+Broker --> U2
+Broker --> U3
+
+U4 --> U5
+User --> U6
+
+@enduml

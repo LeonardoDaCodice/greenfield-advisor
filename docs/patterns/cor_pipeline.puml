@@ -1,0 +1,20 @@
+@startuml
+title Pattern – Chain of Responsibility (Pipeline AI)
+
+abstract class Handler {
+    +set_next()
+    +handle()
+}
+
+class CleaningHandler
+class FeatureEngineeringHandler
+class EstimationHandler
+
+Handler <|-- CleaningHandler
+Handler <|-- FeatureEngineeringHandler
+Handler <|-- EstimationHandler
+
+CleaningHandler --> FeatureEngineeringHandler
+FeatureEngineeringHandler --> EstimationHandler
+
+@enduml

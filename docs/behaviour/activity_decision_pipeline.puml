@@ -1,0 +1,35 @@
+@startuml
+title GreenField Advisor – Activity Diagram (Decision Pipeline)
+
+start
+
+:Attesa messaggi da MQTT;
+
+if (Demo mode?) then (YES)
+    :Carica test case;
+    :Usa valori dal file JSON;
+else (NO)
+    :Ricevi sensori / meteo / immagini;
+    :Aggiorna cache valori;
+endif
+
+:Costruisci record con i valori attuali;
+
+partition "Pipeline AI" {
+    :CleaningHandler - normalizza valori;
+    :FeatureEngineeringHandler - calcola WSI;
+    :EstimationHandler - applica Strategy;
+}
+
+:Genera risultato {action, reason, volume};
+
+:Pubblica decisione su MQTT;
+
+if (Webhook n8n configurato?) then (YES)
+    :Invia webhook a n8n;
+else (NO)
+    :Salta invio webhook;
+endif
+
+stop
+@enduml

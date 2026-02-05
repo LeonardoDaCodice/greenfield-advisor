@@ -1,0 +1,36 @@
+@startuml Sequence
+
+title GreenField Advisor – End-To-End Decision Flow
+
+actor User
+participant "SensorAgent" as SA
+participant "MQTT Broker" as MQTT
+participant "DecisionAgent" as DA
+participant "CleaningHandler" as H1
+participant "FeatureEngineeringHandler" as H2
+participant "EstimationHandler" as H3
+participant "StrategyEngine" as SE
+participant "Streamlit Dashboard" as UI
+
+User -> SA : Read sensor value
+SA -> MQTT : publish(sensor reading)
+
+MQTT -> DA : on_message()
+
+DA -> H1 : handle(record)
+H1 -> H1 : _process(cleaning)
+H1 -> H2 : handle()
+
+H2 -> H2 : _process(WSI computation)
+H2 -> H3 : handle()
+
+H3 -> SE : estimate(features)
+SE --> H3 : suggestion
+H3 --> DA : final processed data
+
+DA -> MQTT : publish(/decisions)
+
+MQTT -> UI : push decision event
+UI --> User : update dashboard (cards + banners)
+
+@enduml

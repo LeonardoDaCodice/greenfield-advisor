@@ -1,0 +1,16 @@
+@startuml
+title Sequence – AI Pipeline (Chain of Responsibility)
+
+participant DecisionAgent
+participant CleaningHandler
+participant FeatureEngineeringHandler
+participant EstimationHandler
+
+DecisionAgent -> CleaningHandler : handle(record)
+CleaningHandler -> FeatureEngineeringHandler : handle(cleaned)
+FeatureEngineeringHandler -> EstimationHandler : handle(features)
+EstimationHandler -> EstimationHandler : estimator.estimate()
+
+EstimationHandler --> DecisionAgent : processed decision
+
+@enduml

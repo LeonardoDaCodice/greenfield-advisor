@@ -1,0 +1,16 @@
+@startuml
+title Pattern – Strategy (Motore Decisionale)
+
+abstract class BaseStrategy {
+    +estimate()
+}
+
+class SimpleRuleStrategy
+class MLPlaceholderStrategy
+
+BaseStrategy <|-- SimpleRuleStrategy
+BaseStrategy <|-- MLPlaceholderStrategy
+
+EstimationHandler --> BaseStrategy : uses
+
+@enduml

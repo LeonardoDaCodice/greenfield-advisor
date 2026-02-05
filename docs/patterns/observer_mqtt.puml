@@ -1,0 +1,19 @@
+@startuml
+title Pattern – Publish/Subscribe (MQTT)
+
+interface Publisher
+interface Subscriber
+
+class SensorAgent implements Publisher
+class WeatherAgent implements Publisher
+class ImageAgent implements Publisher
+
+class DecisionAgent implements Subscriber
+class Dashboard implements Subscriber
+
+class "MQTT Broker" as BROKER
+
+Publisher --> BROKER : publish()
+BROKER --> Subscriber : notify()
+
+@enduml

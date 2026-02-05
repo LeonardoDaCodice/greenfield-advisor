@@ -1,0 +1,19 @@
+@startuml
+title Sequence – Sensor → MQTT → DecisionAgent → Dashboard
+
+participant SensorAgent
+participant "MQTT Broker" as MQTT
+participant DecisionAgent
+participant "Streamlit Dashboard" as UI
+
+SensorAgent -> MQTT : publish sensor reading
+MQTT -> DecisionAgent : forward reading
+
+DecisionAgent -> DecisionAgent : aggiorna cache
+DecisionAgent -> DecisionAgent : pipeline.handle(record)
+DecisionAgent -> MQTT : publish decision
+
+MQTT -> UI : forward decision
+UI -> UI : update dashboard
+
+@enduml

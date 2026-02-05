@@ -1,0 +1,47 @@
+@startuml
+title GreenField Advisor – Use Case Diagram (Overview)
+
+actor "Agronomo / Utente" as User
+actor "Broker MQTT" as MQTT
+
+rectangle "GreenField Advisor System" {
+
+    usecase "Visualizza dashboard\n(condizioni campo)" as UC1
+    usecase "Visualizza\nsuggerimenti irrigazione" as UC2
+    usecase "Seleziona modalità\nLive / Demo" as UC3
+    usecase "Cambia strategia AI" as UC4
+    usecase "Carica Test Case" as UC5
+
+    usecase "Aggiungi sensore" as UC6
+    usecase "Rimuovi sensore" as UC7
+    usecase "Gestisci sensori attivi" as UC8
+
+    usecase "Ricevi dati sensori" as UC9
+    usecase "Ricevi dati meteo" as UC10
+    usecase "Ricevi feature immagini" as UC11
+
+    usecase "Elabora pipeline\nCleaning → Features → Estimation" as UC12
+    usecase "Genera decisione" as UC13
+    usecase "Pubblica decisione" as UC14
+}
+
+User --> UC1
+User --> UC2
+User --> UC3
+User --> UC4
+User --> UC5
+
+User --> UC6
+User --> UC7
+
+MQTT --> UC9
+MQTT --> UC10
+MQTT --> UC11
+
+UC12 --> UC13
+UC13 --> UC14
+
+UC6 --> UC8
+UC7 --> UC8
+
+@enduml

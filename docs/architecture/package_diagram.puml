@@ -1,0 +1,56 @@
+@startuml
+title GreenField Advisor – Package Diagram
+
+package "agents" {
+    [SensorAgent]
+    [SensorManager]
+    [WeatherAgent]
+    [ImageAgent]
+    [DecisionAgent]
+}
+
+package "pipeline" {
+    package "handlers" {
+        [Handler]
+        [CleaningHandler]
+        [FeatureEngineeringHandler]
+        [EstimationHandler]
+    }
+}
+
+package "ai" {
+    package "strategies" {
+        [BaseStrategy]
+        [SimpleRuleStrategy]
+        [MLPlaceholderStrategy]
+    }
+}
+
+package "common" {
+    [config]
+    [mqtt_bus]
+}
+
+package "app" {
+    [main.py]
+}
+
+package "dashboard" {
+    [streamlit_app]
+}
+
+' Relazioni principali
+[DecisionAgent] --> [mqtt_bus]
+[DecisionAgent] --> [CleaningHandler]
+[DecisionAgent] --> [FeatureEngineeringHandler]
+[DecisionAgent] --> [EstimationHandler]
+[EstimationHandler] --> [BaseStrategy]
+
+[SensorManager] --> [SensorAgent]
+[SensorAgent] --> [mqtt_bus]
+[WeatherAgent] --> [mqtt_bus]
+[ImageAgent] --> [mqtt_bus]
+
+[streamlit_app] --> [mqtt_bus]
+
+@enduml

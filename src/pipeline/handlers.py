@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional
 
 # ============================================================
-# 🎯 BASE HANDLER (Chain of Responsibility)
+#  BASE HANDLER (Chain of Responsibility)
 # ============================================================
 class Handler:
     def __init__(self, nxt: Optional['Handler'] = None):
@@ -24,7 +24,7 @@ class Handler:
 
 
 # ============================================================
-# 🧹 CLEANING HANDLER
+#  CLEANING HANDLER
 # Normalizzazione valori sensori
 # ============================================================
 class CleaningHandler(Handler):
@@ -66,7 +66,7 @@ class CleaningHandler(Handler):
 
 
 # ============================================================
-# 🧠 FEATURE ENGINEERING HANDLER
+#  FEATURE ENGINEERING HANDLER
 # Calcolo Water Stress Index (WSI)
 # ============================================================
 class FeatureEngineeringHandler(Handler):
@@ -101,7 +101,7 @@ class FeatureEngineeringHandler(Handler):
 
 
 # ============================================================
-# 🤖 ESTIMATION HANDLER
+#  ESTIMATION HANDLER
 # Strategy: regole o AI placeholder
 # ============================================================
 class EstimationHandler(Handler):

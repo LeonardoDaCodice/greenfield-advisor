@@ -1,0 +1,56 @@
+@startuml Architecture
+
+title GreenField Advisor – High Level Architecture
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam rectangle<<agent>> {
+  BackgroundColor #E8F5E9
+  BorderColor #2E7D32
+}
+skinparam rectangle<<pipeline>> {
+  BackgroundColor #E3F2FD
+  BorderColor #1565C0
+}
+skinparam rectangle<<dashboard>> {
+  BackgroundColor #FFF3E0
+  BorderColor #EF6C00
+}
+skinparam rectangle<<bus>> {
+  BackgroundColor #F3E5F5
+  BorderColor #6A1B9A
+}
+
+rectangle "Sensor Agents\n(Temperature, Humidity, Light)" <<agent>> as Sensors
+rectangle "Weather Agent" <<agent>> as Weather
+rectangle "Image Agent\n(Vegetation Health)" <<agent>> as Image
+
+rectangle "MQTT Event Bus\n(pub/sub)" <<bus>> as Bus
+
+rectangle "Decision Agent" <<agent>> as Decision
+
+rectangle "Pipeline AI" <<pipeline>> as Pipeline {
+    rectangle "Cleaning Handler" as H1
+    rectangle "FeatureEngineering Handler" as H2
+    rectangle "Estimation Handler\n(Strategy)" as H3
+}
+
+rectangle "Strategy Engine\n(Simple Rules / ML Placeholder)" <<pipeline>> as Strategy
+
+rectangle "Streamlit Dashboard" <<dashboard>> as Dashboard
+
+Sensors --> Bus : publish sensor readings
+Weather --> Bus : publish weather data
+Image --> Bus : publish vegetation health
+
+Bus --> Decision : forward all data messages
+
+Decision --> Pipeline : process(record)
+Pipeline --> Strategy : estimate()
+
+Decision --> Bus : publish decision output
+Bus --> Dashboard : /decisions
+
+Dashboard --> Bus : test_case / strategy change
+
+@enduml

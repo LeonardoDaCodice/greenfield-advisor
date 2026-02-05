@@ -1,0 +1,139 @@
+@startuml
+
+title GreenField Advisor – UML Class Diagram (with Packages)
+
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+' ===============================
+' PACKAGE: common
+' ===============================
+package "common" {
+
+  class Config {
+    +MQTT_BROKER_HOST
+    +MQTT_BROKER_PORT
+    +FIELD_ID
+    +AI_STRATEGY
+  }
+
+  class MqttBus {
+    +make_client(name)
+  }
+
+  class mqtt.Client
+  MqttBus --> mqtt.Client : creates
+}
+
+' ===============================
+' PACKAGE: agents
+' ===============================
+package "agents" {
+
+  class SensorAgent {
+    -name : str
+    -kind : str
+    -client : mqtt.Client
+    +generate_reading()
+    +run()
+    +stop()
+  }
+
+  class SensorManager {
+    -sensors : Dict
+    -client : mqtt.Client
+    +_add_sensor()
+    +_remove_sensor()
+    +run()
+    +stop()
+  }
+
+  class WeatherAgent {
+    -client : mqtt.Client
+    +run()
+    +stop()
+  }
+
+  class ImageAgent {
+    -client : mqtt.Client
+    +generate_features()
+    +run()
+    +stop()
+  }
+
+  class DecisionAgent {
+    -client : mqtt.Client
+    -cache : Dict
+    -strategy : BaseStrategy
+    -pipeline : Handler
+    +_on_message()
+    +load_test_case()
+    +run()
+    +stop()
+  }
+
+  SensorManager --> SensorAgent : creates *
+  DecisionAgent --> mqtt.Client : uses
+  SensorAgent --> mqtt.Client : publishes
+  WeatherAgent --> mqtt.Client : publishes
+  ImageAgent --> mqtt.Client : publishes
+}
+
+' ===============================
+' PACKAGE: pipeline
+' ===============================
+package "pipeline" {
+
+  abstract class Handler {
+    -next : Handler
+    +set_next()
+    +handle()
+    #_process()
+  }
+
+  class CleaningHandler {
+    #_process()
+  }
+
+  class FeatureEngineeringHandler {
+    #_process()
+  }
+
+  class EstimationHandler {
+    -estimator : BaseStrategy
+    #_process()
+  }
+
+  Handler <|-- CleaningHandler
+  Handler <|-- FeatureEngineeringHandler
+  Handler <|-- EstimationHandler
+}
+
+DecisionAgent --> Handler : pipeline root
+
+
+' ===============================
+' PACKAGE: ai
+' ===============================
+package "ai" {
+
+  abstract class BaseStrategy {
+    +estimate(features)
+  }
+
+  class SimpleRuleStrategy {
+    +estimate()
+  }
+
+  class MLPlaceholderStrategy {
+    +estimate()
+  }
+
+  BaseStrategy <|-- SimpleRuleStrategy
+  BaseStrategy <|-- MLPlaceholderStrategy
+
+  EstimationHandler --> BaseStrategy : uses
+}
+
+@enduml
