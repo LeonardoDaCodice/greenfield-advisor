@@ -169,7 +169,7 @@ Analogamente, l’`ImageAgent` può essere rimpiazzato da un servizio reale di *
 
 ---
 
-© 2025 — **GreenField Advisor**
+© 2026 — **GreenField Advisor**
 Progetto didattico di Ingegneria del Software / AI & Data Science
 
 
